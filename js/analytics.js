@@ -6,10 +6,26 @@ const isRead = b => b.shelves?.includes("read") || Boolean(b.dateFinished);
 const inYear = (book, year) => !year || year === "all" || (book.dateFinished || "").startsWith(String(year));
 const validRating = b => num(b.myRating) !== null && Number(b.myRating) > 0;
 const validPages = b => num(b.pages) !== null && Number(b.pages) >= 0;
+const systemShelves = new Set(["read","currently-reading","to-read","did-not-finish","dnf","owned","kindle","audiobook","ebook"]);
+function localDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function localBookDate(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(value);
+  return Number.isNaN(date) ? null : date;
+}
 function finishedBooks(books, year = new Date().getFullYear()) { return books.filter(b => isRead(b) && b.dateFinished && inYear(b, year)); }
 function median(values) { const v = values.filter(x => x !== null && !Number.isNaN(x)).sort((a,b)=>a-b); return v.length ? (v[Math.floor((v.length-1)/2)] + v[Math.ceil((v.length-1)/2)]) / 2 : null; }
 function average(values) { const v = values.filter(x => x !== null && !Number.isNaN(x)); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : null; }
 function countBy(items, fn) { return items.reduce((m, item) => { const k = fn(item); if (k) m[k] = (m[k] || 0) + 1; return m; }, {}); }
+function bookGenres(book) {
+  const rich = [...(book.hardcoverData?.genres || []), ...(book.hardcoverData?.tags || [])].filter(Boolean);
+  if (rich.length) return rich;
+  return (book.shelves || []).filter(s => s && !systemShelves.has(String(s).toLowerCase()));
+}
 function statsFor(books, year = new Date().getFullYear()) {
   const finished = finishedBooks(books, year);
   const allFinished = books.filter(b => isRead(b) && b.dateFinished);
@@ -17,11 +33,11 @@ function statsFor(books, year = new Date().getFullYear()) {
   const pages = finished.filter(validPages).map(b => Number(b.pages));
   const tbr = books.filter(b => b.shelves?.includes("to-read"));
   const months = Array.from({ length: 12 }, (_, i) => {
-    const ms = finished.filter(b => new Date(b.dateFinished).getMonth() === i);
+    const ms = finished.filter(b => localBookDate(b.dateFinished)?.getMonth() === i);
     return { month: shortMonths[i], books: ms.length, pages: ms.reduce((s,b)=>s+(Number(b.pages)||0),0) };
   });
   const authors = Object.entries(countBy(finished.flatMap(b => b.authors || []), x => x)).sort((a,b)=>b[1]-a[1]);
-  const genreEntries = finished.flatMap(b => b.hardcoverData?.genres || []);
+  const genreEntries = finished.flatMap(bookGenres);
   const genres = Object.entries(countBy(genreEntries, x => x)).sort((a,b)=>b[1]-a[1]);
   const pace = finished.length ? Math.round(finished.length / Math.max(1, dayOfYear(new Date())) * daysInYear(new Date().getFullYear())) : 0;
   return {
@@ -39,7 +55,7 @@ function statsFor(books, year = new Date().getFullYear()) {
 function daysInYear(y) { return new Date(y,1,29).getMonth() === 1 ? 366 : 365; }
 function dayOfYear(d) { return Math.floor((d - new Date(d.getFullYear(),0,0)) / 86400000); }
 function yearsAvailable(books) { return [...new Set(books.map(b => (b.dateFinished || "").slice(0,4)).filter(Boolean))].sort((a,b)=>b-a); }
-function activityMap(books, year) { return countBy(finishedBooks(books, year), b => b.dateFinished); }
+function activityMap(books, year) { return countBy(finishedBooks(books, year), b => localDateKey(localBookDate(b.dateFinished))); }
 function authorStats(books, year = "all") {
   const finished = finishedBooks(books, year);
   const map = {};
